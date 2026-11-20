@@ -348,3 +348,31 @@ a:hover { color: var(--accent); }
 .pieces-list li { display: grid; grid-template-columns: 60px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .pieces-list .line-thumb { width: 60px; }
 .set-pieces { margin: 4px 0 0 !important; font-size: 13px; color: var(--muted); }
+
+/* ---------- phones (most shoppers arrive from Instagram) ---------- */
+
+.site-nav a { padding: 14px 4px; }
+.select select { font-size: 16px; min-height: 44px; }  /* 16px stops iPhones zooming in on tap */
+.chip { min-height: 40px; display: inline-flex; align-items: center; }
+.line-remove { padding: 10px 12px 10px 0; font-size: 13px; }
+.crumbs a { padding: 6px 0; }
+.btn { min-height: 52px; }
+img { -webkit-user-drag: none; }
+@media (max-width: 899px) {
+  .hero { padding: 20px 16px 18px; }
+  .hero-logo { width: min(340px, 82%); margin-bottom: 10px; }
+  .hero h1 { font-size: 24px; }
+  .lede { font-size: 14px; margin-top: 10px; }
+  .hero-cta { margin-top: 16px; }
+  /* The buy button stays in reach at the bottom of the screen while browsing photos and details. */
+  .buy-sticky {
+    position: sticky; bottom: 0; z-index: 15; margin: 20px -16px 0; padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(6, 11, 19, .96); border-top: 1px solid var(--line); backdrop-filter: blur(8px);
+  }
+  .product-title { font-size: 28px; }
+  .page-narrow { padding-top: 20px; }
+  .checkout-box, .totals { max-width: none; }
+}
+.crumbs { align-items: center; }
+.crumbs a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 2px; }
+.badge { font-size: 11px; }

@@ -320,3 +320,4 @@ a { color: var(--blue-ice); }
 body.slip { --ink: #111; --ink-2: #333; --muted: #555; --line: #ccc; background: #fff; color: #111; color-scheme: light; }
 .slip-body h1 { font-family: Georgia, serif; }
 .slip .abtn-primary { box-shadow: none; }
+.back-link { padding: 12px 0; }

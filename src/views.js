@@ -50,7 +50,7 @@ ${noindex ? raw('<meta name="robots" content="noindex">') : ''}
 <meta property="og:description" content="${desc}">
 <meta property="og:type" content="website">
 ${canonical ? html`<link rel="canonical" href="${canonical}"><meta property="og:url" content="${canonical}">` : ''}
-${image ? html`<meta property="og:image" content="${image}"><meta name="twitter:card" content="summary_large_image">` : ''}
+<meta property="og:image" content="${image || ctx.baseUrl + asset('logo.webp')}"><meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#060B13">
 <link rel="icon" href="${asset('favicon.svg')}" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -243,7 +243,7 @@ export function itemPage(ctx, it) {
       <h1 class="product-title">${it.title}</h1>
       <p class="product-price">${money(it.price_cents)}${it.retail_cents > it.price_cents ? html`<span class="retail">Retail ${money(it.retail_cents)}</span>` : ''}${state === 'sold' ? html`<span class="badge badge-sold badge-inline">Sold</span>` : ''}</p>
       ${specs.length ? html`<dl class="specs">${specs.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>` : ''}
-      <div class="buy">${action}</div>
+      <div class="buy${state === 'available' ? ' buy-sticky' : ''}">${action}</div>
       <p class="ship-note">${shippingText(s)} · ${s.shipping_label}</p>
       ${it.description ? html`<div class="description"><h2 class="mini-title">Details</h2><p>${it.description}</p></div>` : ''}
       ${s.policies ? html`<details class="policies"><summary>Authenticity, shipping &amp; returns</summary><p>${s.policies}</p></details>` : ''}
@@ -285,7 +285,7 @@ export function outfitPage(ctx, o, state) {
       <p class="brand brand-lg">Styled outfit · ${o.items.length} pieces</p>
       <h1 class="product-title">${o.title}</h1>
       <p class="product-price">${money(o.price_cents)}${save > 0 ? html`<span class="retail">${money(full)} separately · save ${money(save)}</span>` : ''}</p>
-      <div class="buy">${action}</div>
+      <div class="buy${state === 'available' ? ' buy-sticky' : ''}">${action}</div>
       <p class="ship-note">${s.shipping_cents > 0 ? `${money(s.shipping_cents)} flat-rate shipping` : 'Free shipping'} · ${s.shipping_label}</p>
       <h2 class="mini-title pieces-h">In this outfit</h2>
       <ul class="pieces-list">
