@@ -520,3 +520,96 @@ test("a deleted item's number is never reused (old links and saved bags can't po
   assert.notEqual(second.id, first.id);
   assert.equal((await go('GET', first.url, auth)).status, 404, 'the old link is dead, not redirected to the new piece');
 });
+
+// ---------- outfits (styled sets) ----------
+
+async function newOutfit(fields, { live = true } = {}) {
+  const body = { title: `Look ${Math.random().toString(36).slice(2, 7)}`, price: '500', ...fields };
+  if (live) body.status = 'live';
+  const r = await call('POST', '/api/admin/outfits', { auth: true, body });
+  assert.equal(r.status, 201, r.text);
+  return r.json.outfit;
+}
+
+test('an outfit sells as a set at its set price, and its pieces sell together', async () => {
+  const top = await newItem({ title: 'Set top', brand: 'Prada', price: '400' });
+  const skirt = await newItem({ title: 'Set skirt', brand: 'Prada', price: '200' });
+  const draft = await newOutfit({ title: 'Night out look', price: '450', item_ids: [top.id, skirt.id] }, { live: false });
+  assert.doesNotMatch((await call('GET', '/')).text, /Night out look/, 'draft outfits are hidden');
+  assert.equal((await call('GET', draft.url)).status, 404);
+  await call('POST', `/api/admin/outfits/${draft.id}/status`, { auth: true, body: { status: 'live' } });
+
+  const home = (await call('GET', '/')).text;
+  assert.match(home, /Styled outfits[\s\S]*Night out look/);
+  const pg = (await call('GET', draft.url)).text;
+  assert.match(pg, /\$450/);
+  assert.match(pg, /\$600 separately · save \$150/);
+  assert.match(pg, new RegExp(`data-add-outfit="${draft.id}"`));
+  assert.match(pg, /Set top[\s\S]*Set skirt/);
+
+  const bag = (await call('GET', `/api/bag?ids=&outfits=${draft.id}`)).json;
+  assert.equal(bag.outfits[0].state, 'available');
+  assert.equal(bag.outfits[0].price_cents, 45000);
+
+  const r = await call('POST', '/api/checkout', { body: { ids: [], outfits: [draft.id] } });
+  assert.equal(r.status, 200, r.text);
+  const p = lastSessionCall().params;
+  assert.equal(p['line_items[0][price_data][unit_amount]'], '30000', 'each piece carries its share of the set price');
+  assert.equal(p['line_items[1][price_data][unit_amount]'], '15000');
+  assert.equal(p['line_items[0][price_data][product_data][name]'], 'Night out look: Prada Set top');
+  assert.equal(await itemState(top.id), 'hold');
+  const sid = r.json.url.split('/').pop();
+  await webhook('checkout.session.completed', mock.pay(sid, { total: 45800 }));
+  assert.equal(await itemState(top.id), 'sold');
+  assert.equal(await itemState(skirt.id), 'sold');
+  const o = (await call('GET', '/api/admin/orders', { auth: true })).json.orders.find((x) => x.stripe_session_id === sid);
+  assert.equal(o.subtotal_cents, 45000);
+  assert.deepEqual(o.items.map((i) => i.outfit), ['Night out look', 'Night out look']);
+  assert.match((await call('GET', draft.url)).text, /This outfit has sold/);
+  assert.doesNotMatch((await call('GET', '/')).text, /Styled outfits/);
+});
+
+test('a piece of an outfit can be bought on its own; the set then stops selling but the rest stay for sale', async () => {
+  const a = await newItem({ title: 'Solo jacket', price: '300' });
+  const b = await newItem({ title: 'Solo jeans', price: '100' });
+  const o = await newOutfit({ title: 'Weekend look', price: '350', item_ids: [a.id, b.id] });
+  const { sid } = await checkout([a.id]);
+  assert.equal(lastSessionCall().params['line_items[0][price_data][unit_amount]'], '30000', 'bought alone, a piece costs its own price');
+  const blocked = await call('POST', '/api/checkout', { body: { ids: [], outfits: [o.id] } });
+  assert.equal(blocked.status, 409);
+  assert.deepEqual(blocked.json.unavailable_outfits, [o.id]);
+  await webhook('checkout.session.completed', mock.pay(sid, { total: 30800 }));
+  const pg = (await call('GET', o.url)).text;
+  assert.match(pg, /isn't available as a full set/);
+  assert.doesNotMatch(pg, /data-add-outfit/);
+  assert.equal(await itemState(b.id), 'available', 'the other piece is still for sale by itself');
+  const list = (await call('GET', '/api/admin/outfits', { auth: true })).json.outfits.find((x) => x.id === o.id);
+  assert.equal(list.state, 'unavailable');
+});
+
+test('an outfit and a single piece can be bought in one order', async () => {
+  const a = await newItem({ title: 'Mix blazer', price: '200' });
+  const b = await newItem({ title: 'Mix trousers', price: '200' });
+  const extra = await newItem({ title: 'Mix belt', price: '50' });
+  const o = await newOutfit({ title: 'Office look', price: '333', item_ids: [a.id, b.id] });
+  const r = await call('POST', '/api/checkout', { body: { ids: [extra.id, a.id], outfits: [o.id] } });
+  assert.equal(r.status, 200, r.text);
+  const p = lastSessionCall().params;
+  const amounts = [0, 1, 2].map((i) => Number(p[`line_items[${i}][price_data][unit_amount]`]));
+  assert.equal(amounts.reduce((x, y) => x + y, 0), 5000 + 33300, 'belt at full price plus the set price, with the blazer not charged twice');
+  assert.equal(p['line_items[3][price_data][unit_amount]'], undefined);
+});
+
+test('outfit rules: needs a name, a price and two live pieces', async () => {
+  const a = await newItem({ title: 'Rule piece' });
+  const d = await newItem({ title: 'Rule draft piece' }, { live: false });
+  assert.equal((await call('POST', '/api/admin/outfits', { auth: true, body: { price: '10', item_ids: [a.id] } })).status, 400);
+  assert.equal((await call('POST', '/api/admin/outfits', { auth: true, body: { title: 'One piece', price: '10', item_ids: [a.id], status: 'live' } })).status, 400);
+  const withDraft = await call('POST', '/api/admin/outfits', { auth: true, body: { title: 'Has draft', price: '10', item_ids: [a.id, d.id], status: 'live' } });
+  assert.equal(withDraft.status, 400);
+  assert.match(withDraft.json.error, /live first/);
+  assert.equal((await call('POST', '/api/admin/outfits', { body: { title: 'x', price: '1' } })).status, 401, 'outfits need the Studio password');
+  const o = await newOutfit({ title: 'To delete', item_ids: [a.id, d.id] }, { live: false });
+  assert.equal((await call('DELETE', `/api/admin/outfits/${o.id}`, { auth: true })).status, 200);
+  assert.equal(await itemState(a.id), 'available', 'deleting an outfit leaves its pieces in the shop');
+});

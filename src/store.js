@@ -96,6 +96,19 @@ const SCHEMA = [
     paid_at INTEGER,
     shipped_at INTEGER
   )`,
+  // An outfit is a styled set of items with its own set price. Its pieces stay
+  // ordinary items, so each can also be bought on its own.
+  `CREATE TABLE IF NOT EXISTS outfits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    price_cents INTEGER NOT NULL,
+    item_ids TEXT NOT NULL DEFAULT '[]',
+    photos TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'live')),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
   'CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS photos (name TEXT PRIMARY KEY, type TEXT NOT NULL, size INTEGER NOT NULL, created_at INTEGER NOT NULL)',
   'CREATE TABLE IF NOT EXISTS hits (key TEXT PRIMARY KEY, n INTEGER NOT NULL, reset INTEGER NOT NULL)',
@@ -225,6 +238,17 @@ export function createStore(db, kv, now = () => Date.now()) {
     return rows.map(rowToItem);
   }
 
+  async function cleanPhotos(list) {
+    const photos = [...new Set(Array.isArray(list) ? list.map(String) : [])];
+    if (photos.length > MAX_PHOTOS) throw new HttpError(400, `Up to ${MAX_PHOTOS} photos.`);
+    if (photos.some((p) => !PHOTO_NAME.test(p))) throw new HttpError(400, 'One of the photos is missing. Try adding it again.');
+    if (photos.length) {
+      const found = await all(`SELECT name FROM photos WHERE name IN (${marks(photos.length)})`, ...photos);
+      if (found.length !== photos.length) throw new HttpError(400, 'One of the photos is missing. Try adding it again.');
+    }
+    return photos;
+  }
+
   async function cleanItem(body) {
     const str = (k, max) => String(body[k] ?? '').trim().slice(0, max);
     const title = str('title', 120);
@@ -232,13 +256,7 @@ export function createStore(db, kv, now = () => Date.now()) {
     const price_cents = toCents(body.price, 'Price', true);
     if (price_cents < 100) throw new HttpError(400, 'Price must be at least $1.');
     const retail_cents = toCents(body.retail, 'Original retail price', false);
-    const photos = [...new Set(Array.isArray(body.photos) ? body.photos.map(String) : [])];
-    if (photos.length > MAX_PHOTOS) throw new HttpError(400, `Up to ${MAX_PHOTOS} photos per item.`);
-    if (photos.some((p) => !PHOTO_NAME.test(p))) throw new HttpError(400, 'One of the photos is missing. Try adding it again.');
-    if (photos.length) {
-      const found = await all(`SELECT name FROM photos WHERE name IN (${marks(photos.length)})`, ...photos);
-      if (found.length !== photos.length) throw new HttpError(400, 'One of the photos is missing. Try adding it again.');
-    }
+    const photos = await cleanPhotos(body.photos);
     return {
       title,
       brand: str('brand', 60),
@@ -312,6 +330,87 @@ export function createStore(db, kv, now = () => Date.now()) {
     await dropUnusedPhotos(it.photos);
   }
 
+  // ---------- outfits ----------
+
+  // Attach each outfit's pieces (one query for all of them).
+  async function withPieces(rows) {
+    const outfits = rows.map((r) => ({ ...r, item_ids: JSON.parse(r.item_ids), photos: JSON.parse(r.photos) }));
+    const ids = [...new Set(outfits.flatMap((o) => o.item_ids))];
+    const byId = new Map(ids.length ? (await all(`SELECT * FROM items WHERE id IN (${marks(ids.length)})`, ...ids)).map((r) => [r.id, rowToItem(r)]) : []);
+    for (const o of outfits) o.items = o.item_ids.map((id) => byId.get(id)).filter(Boolean);
+    return outfits;
+  }
+
+  // available: every piece can be bought now. sold: every piece has sold.
+  // unavailable: a piece sold on its own, is on hold, was unpublished or deleted.
+  function outfitState(o, t = now()) {
+    if (o.status === 'draft') return 'draft';
+    if (o.items.length < 2 || o.items.length !== o.item_ids.length) return 'unavailable';
+    const states = o.items.map((it) => itemState(it, t));
+    if (states.every((s) => s === 'available')) return 'available';
+    if (states.every((s) => s === 'sold')) return 'sold';
+    return 'unavailable';
+  }
+
+  const getOutfit = async (id) => (await withPieces(await all('SELECT * FROM outfits WHERE id = ?', Number(id) || 0)))[0] || null;
+  const listOutfits = async ({ status } = {}) =>
+    withPieces(status ? await all('SELECT * FROM outfits WHERE status = ? ORDER BY updated_at DESC, id DESC', status) : await all('SELECT * FROM outfits ORDER BY updated_at DESC, id DESC'));
+
+  async function cleanOutfit(body) {
+    const title = String(body.title ?? '').trim().slice(0, 120);
+    if (!title) throw new HttpError(400, 'Give the outfit a name.');
+    const price_cents = toCents(body.price, 'Set price', true);
+    if (price_cents < 100) throw new HttpError(400, 'Set price must be at least $1.');
+    const item_ids = [...new Set((Array.isArray(body.item_ids) ? body.item_ids : []).map((x) => parseInt(x, 10)).filter((n) => n > 0))];
+    if (item_ids.length > 10) throw new HttpError(400, 'Up to 10 pieces per outfit.');
+    if (item_ids.length) {
+      const found = await all(`SELECT id FROM items WHERE id IN (${marks(item_ids.length)})`, ...item_ids);
+      if (found.length !== item_ids.length) throw new HttpError(400, 'One of the pieces no longer exists. Reopen the outfit and pick again.');
+    }
+    return { title, description: String(body.description ?? '').trim().slice(0, 5000), price_cents, item_ids, photos: await cleanPhotos(body.photos) };
+  }
+
+  async function createOutfit(body) {
+    const f = await cleanOutfit(body);
+    const t = now();
+    const r = await run('INSERT INTO outfits (title, description, price_cents, item_ids, photos, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      f.title, f.description, f.price_cents, JSON.stringify(f.item_ids), JSON.stringify(f.photos), t, t);
+    const id = r.meta.last_row_id;
+    if (body.status === 'live') await setOutfitStatus(id, 'live');
+    return getOutfit(id);
+  }
+
+  async function updateOutfit(id, body) {
+    const o = await getOutfit(id);
+    if (!o) throw new HttpError(404, 'That outfit no longer exists.');
+    const f = await cleanOutfit(body);
+    if (o.status === 'live' && f.item_ids.length < 2) throw new HttpError(400, 'A live outfit needs at least two pieces.');
+    await run('UPDATE outfits SET title = ?, description = ?, price_cents = ?, item_ids = ?, photos = ?, updated_at = ? WHERE id = ?',
+      f.title, f.description, f.price_cents, JSON.stringify(f.item_ids), JSON.stringify(f.photos), now(), o.id);
+    if (body.status === 'live' && o.status === 'draft') await setOutfitStatus(o.id, 'live');
+    await dropUnusedPhotos(o.photos.filter((p) => !f.photos.includes(p)));
+    return getOutfit(o.id);
+  }
+
+  async function setOutfitStatus(id, status) {
+    const o = await getOutfit(id);
+    if (!o) throw new HttpError(404, 'That outfit no longer exists.');
+    if (status !== 'live' && status !== 'draft') throw new HttpError(400, 'Unknown status.');
+    if (status === 'live') {
+      if (o.items.length < 2) throw new HttpError(400, 'Pick at least two pieces before making the outfit live.');
+      if (o.items.some((it) => it.status === 'draft')) throw new HttpError(400, 'Make every piece in the outfit live first.');
+    }
+    await run('UPDATE outfits SET status = ?, updated_at = ? WHERE id = ?', status, now(), o.id);
+    return getOutfit(o.id);
+  }
+
+  async function deleteOutfit(id) {
+    const o = await getOutfit(id);
+    if (!o) return;
+    await run('DELETE FROM outfits WHERE id = ?', o.id);
+    await dropUnusedPhotos(o.photos);
+  }
+
   // ---------- photos ----------
 
   async function savePhoto(bytes) {
@@ -342,6 +441,7 @@ export function createStore(db, kv, now = () => Date.now()) {
   }
 
   const UNUSED = `NOT EXISTS (SELECT 1 FROM items WHERE instr(items.photos, photos.name) > 0)
+       AND NOT EXISTS (SELECT 1 FROM outfits WHERE instr(outfits.photos, photos.name) > 0)
        AND NOT EXISTS (SELECT 1 FROM orders WHERE instr(orders.items, photos.name) > 0)`;
 
   // Delete the given photos unless an item or a past order still shows them.
@@ -376,17 +476,19 @@ export function createStore(db, kv, now = () => Date.now()) {
   const getOrderBySession = async (sid) => rowToOrder(await one('SELECT * FROM orders WHERE stripe_session_id = ?', String(sid || '')));
 
   // Put the requested items on hold and open a pending order for them.
-  async function reserve(ids) {
+  // `sets` maps an item id to { price_cents, outfit } when the piece is bought as part of an outfit.
+  async function reserve(ids, sets = new Map()) {
     const settings = await getSettings();
     const t = now();
     const found = new Map((await all(`SELECT * FROM items WHERE id IN (${marks(ids.length)})`, ...ids)).map((r) => [r.id, rowToItem(r)]));
     const unavailable = ids.filter((id) => !found.get(id) || itemState(found.get(id), t) !== 'available');
     if (unavailable.length) throw new HttpError(409, 'Some pieces in your bag were just taken.', { unavailable });
     const items = ids.map((id) => found.get(id));
-    const snapshot = items.map((it) => ({
-      id: it.id, title: it.title, brand: it.brand, size: it.size, condition: it.condition, price_cents: it.price_cents, photo: it.photos[0] || null,
+    const lines = items.map((it) => ({ item: it, price_cents: sets.has(it.id) ? sets.get(it.id).price_cents : it.price_cents, outfit: sets.has(it.id) ? sets.get(it.id).outfit : null }));
+    const snapshot = lines.map(({ item: it, price_cents, outfit }) => ({
+      id: it.id, title: it.title, brand: it.brand, size: it.size, condition: it.condition, price_cents, photo: it.photos[0] || null, ...(outfit ? { outfit } : {}),
     }));
-    const subtotal = items.reduce((sum, it) => sum + it.price_cents, 0);
+    const subtotal = lines.reduce((sum, l) => sum + l.price_cents, 0);
     const r = await run(
       "INSERT INTO orders (token, status, items, subtotal_cents, shipping_cents, created_at, expires_at) VALUES (?, 'pending', ?, ?, ?, ?, ?)",
       randomToken(), JSON.stringify(snapshot), subtotal, settings.shipping_cents, t, t + HOLD_MS,
@@ -401,7 +503,7 @@ export function createStore(db, kv, now = () => Date.now()) {
       await release(orderId, 'cancelled');
       throw new HttpError(409, 'Some pieces in your bag were just taken.', { unavailable: lost });
     }
-    return { order: await getOrder(orderId), items, checkoutExpiresAt: t + CHECKOUT_MS };
+    return { order: await getOrder(orderId), lines, checkoutExpiresAt: t + CHECKOUT_MS };
   }
 
   const attachSession = (orderId, sessionId) => run('UPDATE orders SET stripe_session_id = ? WHERE id = ?', sessionId, orderId);
@@ -506,6 +608,7 @@ export function createStore(db, kv, now = () => Date.now()) {
   return {
     now, getSettings, saveSettings, secret, allow,
     itemState, getItem, listItems, createItem, updateItem, setItemStatus, deleteItem,
+    outfitState, getOutfit, listOutfits, createOutfit, updateOutfit, setOutfitStatus, deleteOutfit,
     savePhoto, getPhoto, photoUsage,
     getOrder, getOrderByToken, getOrderBySession, reserve, attachSession, release, applySession, listOrders, openCheckouts, shipOrder,
   };

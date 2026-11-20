@@ -24,6 +24,13 @@ export function slugify(s) {
 export const itemPath = (it) => `/item/${it.id}-${slugify(`${it.brand} ${it.title}`)}`;
 export const photoUrl = (name) => `/uploads/${name}`;
 const shippingText = (s) => (s.shipping_cents > 0 ? `${money(s.shipping_cents)} flat-rate shipping` : 'Free shipping');
+export const outfitPath = (o) => `/outfit/${o.id}-${slugify(o.title)}`;
+// An outfit's cover: its own styled photo, or else its first piece's photo.
+export const outfitCover = (o) => {
+  const name = o.photos[0] || (o.items.find((it) => it.photos[0]) || { photos: [] }).photos[0];
+  return name ? photoUrl(name) : null;
+};
+const separately = (o) => o.items.reduce((n, it) => n + it.price_cents, 0);
 export const itemName = (it) => [it.brand, it.title].filter(Boolean).join(' ');
 
 export function layout(ctx, { title, description, image, canonical, body, noindex }) {
@@ -111,7 +118,20 @@ function card(ctx, it) {
 </a>`;
 }
 
-export function homePage(ctx, { items, sold, categories, brands, query, total }) {
+function outfitCard(o) {
+  const cover = outfitCover(o);
+  const full = separately(o);
+  return html`<a class="card card-outfit" href="${outfitPath(o)}">
+  <div class="card-media">${cover ? html`<img src="${cover}" alt="${o.title}" loading="lazy" decoding="async">` : placeholder({ title: o.title })}<span class="badge badge-set">${o.items.length}-piece set</span></div>
+  <div class="card-body">
+    <p class="brand">Styled outfit</p>
+    <p class="card-title">${o.title}</p>
+    <p class="price">${money(o.price_cents)}${full > o.price_cents ? html`<s class="retail">${money(full)}</s>` : ''}</p>
+  </div>
+</a>`;
+}
+
+export function homePage(ctx, { items, sold, outfits = [], categories, brands, query, total }) {
   const s = ctx.settings;
   const href = (over) => {
     const q = { category: query.category, brand: query.brand, sort: query.sort, ...over };
@@ -139,6 +159,13 @@ export function homePage(ctx, { items, sold, categories, brands, query, total })
   ${s.tagline ? html`<p class="lede">${s.tagline}</p>` : ''}
   <p class="hero-cta"><a class="btn btn-primary" href="#shop">Shop now</a></p>
 </section>
+${outfits.length
+    ? html`<section class="wrap outfit-strip" aria-labelledby="outfits-h">
+  <h2 id="outfits-h" class="section-title">Styled outfits</h2>
+  <p class="muted strip-note">Buy the whole look at a set price, or pick out single pieces.</p>
+  <div class="grid">${outfits.map(outfitCard)}</div>
+</section>`
+    : ''}
 <section class="wrap shop" id="shop" aria-label="Shop">
   ${total > 0
     ? html`<div class="toolbar">
@@ -234,6 +261,60 @@ export function itemPage(ctx, it) {
   });
 }
 
+export function outfitPage(ctx, o, state) {
+  const s = ctx.settings;
+  const full = separately(o);
+  const save = full - o.price_cents;
+  const photoNames = [...o.photos, ...o.items.map((it) => it.photos[0]).filter(Boolean)];
+  let action;
+  if (state === 'available') action = html`<button type="button" class="btn btn-primary btn-block" data-add-outfit="${o.id}" data-outfit-items="${o.item_ids.join(',')}">Add outfit to bag</button>`;
+  else if (state === 'sold') action = html`<p class="notice notice-sold">This outfit has sold. <a href="/#shop">See what's still available</a></p>`;
+  else if (state === 'draft') action = html`<p class="notice">Draft preview: only you can see this page. Make it live from the <a href="/admin#outfits">Studio</a> when you're ready.</p>`;
+  else action = html`<p class="notice">This outfit isn't available as a full set right now. Pieces still for sale are listed below.</p>`;
+  const body = html`
+<div class="wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Shop</a><span aria-hidden="true">/</span><span>Styled outfits</span></nav>
+  <article class="product">
+    <div class="gallery" data-gallery>
+      <div class="gallery-track" data-gallery-track>${photoNames.length
+        ? photoNames.map((p, i) => html`<figure class="gallery-slide"><img src="${photoUrl(p)}" alt="${o.title}, photo ${i + 1} of ${photoNames.length}" ${i === 0 ? '' : raw('loading="lazy" ')}decoding="async"></figure>`)
+        : html`<figure class="gallery-slide">${placeholder({ title: o.title })}</figure>`}</div>
+      ${photoNames.length > 1 ? html`<p class="gallery-count" data-gallery-count>1 / ${photoNames.length}</p>` : ''}
+    </div>
+    <div class="details">
+      <p class="brand brand-lg">Styled outfit · ${o.items.length} pieces</p>
+      <h1 class="product-title">${o.title}</h1>
+      <p class="product-price">${money(o.price_cents)}${save > 0 ? html`<span class="retail">${money(full)} separately · save ${money(save)}</span>` : ''}</p>
+      <div class="buy">${action}</div>
+      <p class="ship-note">${s.shipping_cents > 0 ? `${money(s.shipping_cents)} flat-rate shipping` : 'Free shipping'} · ${s.shipping_label}</p>
+      <h2 class="mini-title pieces-h">In this outfit</h2>
+      <ul class="pieces-list">
+        ${o.items.map((it) => {
+          const st = ctx.state(it);
+          return html`<li>
+          <a class="line-thumb" href="${itemPath(it)}">${it.photos[0] ? html`<img src="${photoUrl(it.photos[0])}" alt="">` : ''}</a>
+          <div class="line-info">${it.brand ? html`<p class="brand">${it.brand}</p>` : ''}<p><a href="${itemPath(it)}">${it.title}</a></p>${it.size ? html`<p class="muted small">Size ${it.size}</p>` : ''}${st === 'sold' ? html`<p class="line-gone">Sold</p>` : st === 'hold' ? html`<p class="line-gone">On hold</p>` : ''}</div>
+          <p class="line-price">${money(it.price_cents)}</p>
+        </li>`;
+        })}
+      </ul>
+      <p class="muted small">Want just one piece? Tap it to buy it on its own.</p>
+      ${o.description ? html`<div class="description"><h2 class="mini-title">Details</h2><p>${o.description}</p></div>` : ''}
+      ${s.policies ? html`<details class="policies"><summary>Authenticity, shipping &amp; returns</summary><p>${s.policies}</p></details>` : ''}
+    </div>
+  </article>
+</div>`;
+  const cover = outfitCover(o);
+  return layout(ctx, {
+    title: o.title,
+    description: `${o.items.length}-piece outfit for ${money(o.price_cents)}. ${o.description}`.slice(0, 200),
+    image: cover ? ctx.baseUrl + cover : null,
+    canonical: ctx.baseUrl + outfitPath(o),
+    noindex: state === 'draft',
+    body,
+  });
+}
+
 export function bagPage(ctx) {
   const body = html`
 <section class="wrap page-narrow">
@@ -280,7 +361,7 @@ export function orderPage(ctx, o, { fresh }) {
   <ul class="order-lines">
     ${o.items.map((i) => html`<li>
       <div class="line-thumb">${i.photo ? html`<img src="${photoUrl(i.photo)}" alt="">` : ''}</div>
-      <div class="line-info">${i.brand ? html`<p class="brand">${i.brand}</p>` : ''}<p>${i.title}</p>${i.size ? html`<p class="muted small">Size ${i.size}</p>` : ''}</div>
+      <div class="line-info">${i.brand ? html`<p class="brand">${i.brand}</p>` : ''}<p>${i.title}</p>${i.size ? html`<p class="muted small">Size ${i.size}</p>` : ''}${i.outfit ? html`<p class="muted small">Part of outfit: ${i.outfit}</p>` : ''}</div>
       <p class="line-price">${money(i.price_cents)}</p>
     </li>`)}
   </ul>
@@ -394,12 +475,14 @@ export function adminPage() {
     </div>
     <nav class="tabs" aria-label="Studio sections">
       <button type="button" class="tab" data-tab="items" aria-current="page">Items</button>
+      <button type="button" class="tab" data-tab="outfits">Outfits</button>
       <button type="button" class="tab" data-tab="orders">Orders <span class="tab-badge" data-orders-badge hidden></span></button>
       <button type="button" class="tab" data-tab="settings">Shop settings</button>
     </nav>
   </header>
   <div class="banners" data-banners></div>
   <main class="panel" data-panel="items"></main>
+  <main class="panel" data-panel="outfits" hidden></main>
   <main class="panel" data-panel="orders" hidden></main>
   <main class="panel" data-panel="settings" hidden></main>
 </div>
@@ -416,8 +499,13 @@ export function adminPage() {
         <div class="photos" data-photos></div>
         <p class="hint">Tip: natural light, a plain background, and a close-up of the tag, logo and any wear.</p>
       </section>
+      <section class="field-group" data-outfit-only hidden>
+        <p class="field-label">Pieces in this outfit <span class="muted">(pick 2 or more; each can still be bought on its own)</span></p>
+        <div class="pieces" data-pieces></div>
+        <p class="hint" data-pieces-total></p>
+      </section>
       <div class="field-row">
-        <label class="field">
+        <label class="field" data-item-only>
           <span class="field-label">Designer / brand</span>
           <input name="brand" list="brand-list" autocomplete="off" maxlength="60" placeholder="Gucci">
         </label>
@@ -431,12 +519,12 @@ export function adminPage() {
           <span class="field-label">Price <span class="req">*</span></span>
           <span class="money-input"><span>$</span><input name="price" inputmode="decimal" required placeholder="450"></span>
         </label>
-        <label class="field">
+        <label class="field" data-item-only>
           <span class="field-label">Original retail <span class="muted">(optional)</span></span>
           <span class="money-input"><span>$</span><input name="retail" inputmode="decimal" placeholder="1,290"></span>
         </label>
       </div>
-      <div class="field-row field-row-3">
+      <div class="field-row field-row-3" data-item-only>
         <label class="field">
           <span class="field-label">Category</span>
           <select name="category" data-categories></select>
@@ -450,7 +538,7 @@ export function adminPage() {
           <input name="size" maxlength="40" placeholder="S, 38, One size">
         </label>
       </div>
-      <label class="field">
+      <label class="field" data-item-only>
         <span class="field-label">Color</span>
         <input name="color" maxlength="40" placeholder="Black / gold hardware">
       </label>

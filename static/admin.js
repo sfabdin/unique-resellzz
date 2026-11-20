@@ -28,7 +28,7 @@
     'Marc Jacobs', 'Michael Kors', 'Miu Miu', 'Moncler', 'Off-White', 'Prada', 'Saint Laurent', 'Salvatore Ferragamo', 'Stella McCartney',
     'Tory Burch', 'Valentino', 'Versace'];
 
-  var state = { me: null, items: [], orders: [], openCheckouts: 0, settings: null, tab: 'items', filter: 'all' };
+  var state = { me: null, items: [], outfits: [], orders: [], openCheckouts: 0, settings: null, tab: 'items', filter: 'all' };
 
   // ---------- plumbing ----------
 
@@ -90,7 +90,7 @@
         $('[data-app]').hidden = false;
         fillSelects();
         renderBanners();
-        return Promise.all([loadItems(), loadOrders(), loadSettings()]);
+        return Promise.all([loadItems(), loadOutfits(), loadOrders(), loadSettings()]);
       })
       .catch(function (err) { if (err.status !== 401) showLogin(err.message); else showLogin(); });
   }
@@ -105,6 +105,7 @@
     });
     $$('[data-panel]').forEach(function (p) { p.hidden = p.getAttribute('data-panel') !== name; });
     if (name === 'orders') loadOrders();
+    if (name === 'outfits') loadOutfits();
     try { history.replaceState(null, '', name === 'items' ? '/admin' : '/admin#' + name); } catch (e) { /* ignore */ }
   }
   $$('[data-tab]').forEach(function (b) { b.addEventListener('click', function () { setTab(b.getAttribute('data-tab')); }); });
@@ -247,8 +248,14 @@
   var form = $('[data-editor-form]');
   var editing = null;
 
-  function openEditor(it) {
-    editing = { id: it ? it.id : null, status: it ? it.status : 'draft', state: it ? it.state : 'draft', photos: it ? it.photos.slice() : [], uploading: 0, dirty: false, saving: false };
+  // The same editor serves items and outfits; an outfit swaps the item-only
+  // fields for a picker of the pieces it is made of.
+  function openEditor(it, kind) {
+    kind = kind || 'item';
+    $$('[data-item-only]', dialog).forEach(function (el) { el.hidden = kind !== 'item'; });
+    $$('[data-outfit-only]', dialog).forEach(function (el) { el.hidden = kind !== 'outfit'; });
+    if (kind === 'outfit') return openOutfitEditor(it);
+    editing = { kind: 'item', id: it ? it.id : null, status: it ? it.status : 'draft', state: it ? it.state : 'draft', photos: it ? it.photos.slice() : [], uploading: 0, dirty: false, saving: false };
     form.reset();
     form.brand.value = it ? it.brand : '';
     form.title.value = it ? it.title : '';
@@ -265,6 +272,51 @@
     renderFoot();
     dialog.showModal();
     if (!it) form.brand.focus();
+  }
+
+  function openOutfitEditor(o) {
+    editing = { kind: 'outfit', id: o ? o.id : null, status: o ? o.status : 'draft', photos: o ? o.photos.slice() : [], pieces: o ? o.item_ids.slice() : [], uploading: 0, dirty: false, saving: false };
+    form.reset();
+    form.title.value = o ? o.title : '';
+    form.price.value = o ? dollars(o.price_cents) : '';
+    form.description.value = o ? o.description : '';
+    $('[data-editor-title]').textContent = o ? 'Edit outfit' : 'New outfit';
+    setEditorError('');
+    renderPhotos();
+    renderPieces();
+    renderFoot();
+    dialog.showModal();
+    if (!o) form.title.focus();
+  }
+
+  function renderPieces() {
+    var box = $('[data-pieces]');
+    // Pieces that can go in an outfit: anything not sold, plus whatever is already in it.
+    var options = state.items.filter(function (it) { return it.state !== 'sold' || editing.pieces.indexOf(it.id) >= 0; });
+    box.innerHTML = options.length ? options.map(function (it) {
+      var on = editing.pieces.indexOf(it.id) >= 0;
+      return '<label class="piece"><input type="checkbox" data-piece="' + it.id + '"' + (on ? ' checked' : '') + '>' +
+        '<span class="piece-thumb">' + (it.photos[0] ? '<img src="/uploads/' + esc(it.photos[0]) + '" alt="">' : '') + '</span>' +
+        '<span>' + (it.brand ? '<strong>' + esc(it.brand) + '</strong> ' : '') + esc(it.title) + ' <span class="pill ' + PILL[it.state][1] + '">' + PILL[it.state][0] + '</span></span>' +
+        '<span>' + money(it.price_cents) + '</span></label>';
+    }).join('') : '<p class="muted">Post some items first, then group them into an outfit.</p>';
+    $$('[data-piece]', box).forEach(function (c) {
+      c.addEventListener('change', function () {
+        var id = Number(c.getAttribute('data-piece'));
+        editing.pieces = editing.pieces.filter(function (x) { return x !== id; });
+        if (c.checked) editing.pieces.push(id);
+        editing.dirty = true;
+        piecesTotal();
+      });
+    });
+    piecesTotal();
+  }
+
+  function piecesTotal() {
+    var total = state.items.filter(function (it) { return editing.pieces.indexOf(it.id) >= 0; }).reduce(function (n, it) { return n + it.price_cents; }, 0);
+    $('[data-pieces-total]').textContent = editing.pieces.length
+      ? editing.pieces.length + ' picked. Bought separately they come to ' + money(total) + '. Set the outfit price below that to give a deal.'
+      : '';
   }
 
   function renderFoot() {
@@ -402,6 +454,7 @@
   form.addEventListener('submit', function (ev) {
     ev.preventDefault();
     var mode = (ev.submitter && ev.submitter.getAttribute('data-save')) || (editing.status === 'draft' ? 'draft' : 'keep');
+    if (editing.kind === 'outfit') return saveOutfit(mode);
     if (!form.title.value.trim()) { setEditorError('Give the item a title.'); form.title.focus(); return; }
     if (!form.price.value.trim()) { setEditorError('Add a price.'); form.price.focus(); return; }
     if (mode === 'live' && !editing.photos.length) { setEditorError('Add at least one photo before making it live.'); return; }
@@ -427,6 +480,81 @@
       if (dialog.open) renderFoot();
     });
   });
+
+  // ---------- outfits ----------
+
+  function saveOutfit(mode) {
+    if (!form.title.value.trim()) { setEditorError('Give the outfit a name.'); form.title.focus(); return; }
+    if (!form.price.value.trim()) { setEditorError('Add the set price.'); form.price.focus(); return; }
+    if (mode === 'live' && editing.pieces.length < 2) { setEditorError('Pick at least two pieces before making the outfit live.'); return; }
+    var body = { title: form.title.value, price: form.price.value, description: form.description.value, photos: editing.photos, item_ids: editing.pieces };
+    if (mode === 'live') body.status = 'live';
+    editing.saving = true;
+    renderFoot();
+    setEditorError('');
+    var req = editing.id ? api('PUT', '/api/admin/outfits/' + editing.id, body) : api('POST', '/api/admin/outfits', body);
+    req.then(function () {
+      editing.dirty = false;
+      dialog.close();
+      toast(mode === 'live' ? 'The outfit is live!' : mode === 'draft' ? 'Saved as a draft. Only you can see it.' : 'Saved.');
+      loadOutfits();
+    }).catch(function (err) {
+      setEditorError(err.message);
+    }).then(function () {
+      editing.saving = false;
+      if (dialog.open) renderFoot();
+    });
+  }
+
+  function loadOutfits() {
+    return api('GET', '/api/admin/outfits').then(function (j) { state.outfits = j.outfits; renderOutfits(); }).catch(fail);
+  }
+
+  var OUTFIT_PILL = { draft: ['Draft', 'pill-draft'], available: ['Live', 'pill-live'], sold: ['Sold', 'pill-sold'], unavailable: ['Not sold as a set', 'pill-hold'] };
+
+  function renderOutfits() {
+    var panel = $('[data-panel="outfits"]');
+    var rows = state.outfits.map(function (o) {
+      var pill = OUTFIT_PILL[o.state];
+      var cover = o.photos[0] || (o.items.filter(function (it) { return it.photo; })[0] || {}).photo;
+      var full = o.items.reduce(function (n, it) { return n + it.price_cents; }, 0);
+      var a = function (act, label, cls) { return '<button type="button" class="abtn abtn-sm ' + (cls || '') + '" data-oact="' + act + '" data-id="' + o.id + '">' + label + '</button>'; };
+      return '<li class="item-row">' +
+        '<button type="button" class="row-thumb" data-oact="edit" data-id="' + o.id + '" aria-label="Edit ' + esc(o.title) + '">' + (cover ? '<img src="/uploads/' + esc(cover) + '" alt="" loading="lazy">' : '<span class="no-photo">No photo</span>') + '</button>' +
+        '<div class="row-main">' +
+          '<p class="row-brand">' + o.items.length + '-piece outfit</p>' +
+          '<p class="row-title">' + esc(o.title) + '</p>' +
+          '<p class="row-meta"><span class="pill ' + pill[1] + '">' + pill[0] + '</span> ' + money(o.price_cents) + ' set · ' + money(full) + ' separately</p>' +
+          (o.state === 'unavailable' ? '<p class="row-note">A piece sold on its own, is in a checkout, or was unpublished. The rest still sell one by one.</p>' : '') +
+        '</div>' +
+        '<div class="row-actions">' + a('edit', 'Edit') +
+          (o.status === 'draft' ? a('live', 'Make live', 'abtn-primary') : '<a class="abtn abtn-sm" href="' + esc(o.url) + '" target="_blank" rel="noopener">View</a>' + a('draft', 'Unpublish')) +
+          a('remove', 'Delete') +
+        '</div></li>';
+    }).join('');
+    panel.innerHTML =
+      '<div class="panel-head"><h1>Outfits</h1><button type="button" class="abtn abtn-primary" data-new-outfit>+ New outfit</button></div>' +
+      (state.outfits.length ? '<ul class="item-list">' + rows + '</ul>'
+        : '<div class="empty-card"><p class="empty-h">Style your first outfit</p>' +
+          '<p class="muted">Group two or more of your items into a look with its own set price. Shoppers can buy the whole outfit, or any piece on its own.</p>' +
+          '<button type="button" class="abtn abtn-primary" data-new-outfit>+ New outfit</button></div>');
+    $$('[data-new-outfit]', panel).forEach(function (b) { b.addEventListener('click', function () { openEditor(null, 'outfit'); }); });
+    $$('[data-oact]', panel).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = Number(b.getAttribute('data-id'));
+        var o = state.outfits.filter(function (x) { return x.id === id; })[0];
+        var act = b.getAttribute('data-oact');
+        if (!o) return;
+        if (act === 'edit') return openEditor(o, 'outfit');
+        if (act === 'remove') {
+          if (!confirm('Delete the outfit \u201c' + o.title + '\u201d? Its pieces stay in the shop as single items.')) return;
+          return api('DELETE', '/api/admin/outfits/' + id).then(function () { toast('Outfit deleted.'); loadOutfits(); }).catch(fail);
+        }
+        api('POST', '/api/admin/outfits/' + id + '/status', { status: act })
+          .then(function () { toast(act === 'live' ? 'The outfit is live!' : 'Unpublished.'); loadOutfits(); }).catch(fail);
+      });
+    });
+  }
 
   // ---------- orders ----------
 
@@ -469,7 +597,7 @@
   function orderCard(o) {
     var items = o.items.map(function (i) {
       return '<li><span class="oi-thumb">' + (i.photo ? '<img src="/uploads/' + esc(i.photo) + '" alt="">' : '') + '</span>' +
-        '<span class="oi-name">' + (i.brand ? '<strong>' + esc(i.brand) + '</strong> ' : '') + esc(i.title) + (i.size ? ' <span class="muted">· Size ' + esc(i.size) + '</span>' : '') + '</span>' +
+        '<span class="oi-name">' + (i.brand ? '<strong>' + esc(i.brand) + '</strong> ' : '') + esc(i.title) + (i.size ? ' <span class="muted">· Size ' + esc(i.size) + '</span>' : '') + (i.outfit ? ' <span class="muted">· Outfit: ' + esc(i.outfit) + '</span>' : '') + '</span>' +
         '<span class="oi-price">' + money(i.price_cents) + '</span></li>';
     }).join('');
     var pill = { paid: ['To ship', 'pill-hold'], shipped: ['Shipped', 'pill-live'], processing: ['Payment processing', 'pill-draft'] }[o.status];
@@ -611,5 +739,5 @@
 
   boot();
   var start = location.hash.replace('#', '');
-  if (start === 'orders' || start === 'settings') setTab(start);
+  if (start === 'orders' || start === 'settings' || start === 'outfits') setTab(start);
 })();

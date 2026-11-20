@@ -197,7 +197,8 @@ async function route(c) {
     const categories = CATEGORIES.filter((cat) => all.some((it) => it.category === cat));
     const brands = [...new Set(all.map((it) => it.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     const sold = (await store.listItems({ statuses: ['sold'] })).sort((a, b) => (b.sold_at || 0) - (a.sold_at || 0)).slice(0, 8);
-    return page(views.homePage(await pageCtx(), { items, sold, categories, brands, query: { category, brand, sort }, total: all.length }));
+    const outfits = (await store.listOutfits({ status: 'live' })).filter((o) => store.outfitState(o) === 'available');
+    return page(views.homePage(await pageCtx(), { items, sold, outfits, categories, brands, query: { category, brand, sort }, total: all.length }));
   }
 
   if (method === 'GET' && (m = path.match(/^\/item\/([^/]+)$/))) {
@@ -206,6 +207,14 @@ async function route(c) {
     const canonical = views.itemPath(it);
     if (path !== canonical) return redirect(canonical, 301);
     return page(views.itemPage(await pageCtx(), it), 200, it.status === 'draft' ? { 'Cache-Control': 'no-store' } : {});
+  }
+
+  if (method === 'GET' && (m = path.match(/^\/outfit\/([^/]+)$/))) {
+    const o = await store.getOutfit(parseInt(m[1], 10));
+    if (!o || (o.status === 'draft' && !(await isAdmin()))) return notFound();
+    const canonical = views.outfitPath(o);
+    if (path !== canonical) return redirect(canonical, 301);
+    return page(views.outfitPage(await pageCtx(), o, store.outfitState(o)), 200, o.status === 'draft' ? { 'Cache-Control': 'no-store' } : {});
   }
 
   if (method === 'GET' && path === '/about') return page(views.aboutPage(await pageCtx()));
@@ -248,7 +257,16 @@ async function route(c) {
         price_cents: it.price_cents, photo: it.photos[0] ? views.photoUrl(it.photos[0]) : null, state: store.itemState(it),
       });
     }
-    return json({ items, shipping_cents: s.shipping_cents, shipping_label: s.shipping_label, checkout_enabled: Boolean(stripe) });
+    const outfits = [];
+    for (const id of parseIds(url.searchParams.get('outfits'))) {
+      const o = await store.getOutfit(id);
+      if (!o || o.status === 'draft') continue;
+      outfits.push({
+        id: o.id, url: views.outfitPath(o), title: o.title, price_cents: o.price_cents, separately_cents: o.items.reduce((n, it) => n + it.price_cents, 0),
+        photo: views.outfitCover(o), state: store.outfitState(o), item_ids: o.item_ids, pieces: o.items.map((it) => views.itemName(it)),
+      });
+    }
+    return json({ items, outfits, shipping_cents: s.shipping_cents, shipping_label: s.shipping_label, checkout_enabled: Boolean(stripe) });
   }
 
   if (method === 'POST' && path === '/api/checkout') {
@@ -256,13 +274,31 @@ async function route(c) {
     if (!(await store.allow(`checkout:${ip}`, opts.checkoutsPerTenMinutes || 8, 10 * 60 * 1000))) {
       return json({ error: 'Too many checkout attempts. Please wait a few minutes and try again.' }, 429);
     }
-    const ids = parseIds((await readJson(request)).ids);
+    const body = await readJson(request);
+    const ids = parseIds(body.ids);
+    // Outfits: every piece joins the order at its share of the set price.
+    const sets = new Map();
+    const goneOutfits = [];
+    for (const oid of parseIds(body.outfits)) {
+      const o = await store.getOutfit(oid);
+      if (!o || store.outfitState(o) !== 'available') { goneOutfits.push(oid); continue; }
+      const full = o.items.reduce((n, it) => n + it.price_cents, 0);
+      let left = o.price_cents;
+      o.items.forEach((it, i) => {
+        const share = i === o.items.length - 1 ? left : Math.min(left, Math.round((o.price_cents * it.price_cents) / full));
+        left -= share;
+        sets.set(it.id, { price_cents: share, outfit: o.title });
+        if (!ids.includes(it.id)) ids.push(it.id);
+      });
+    }
+    if (goneOutfits.length) return json({ error: 'An outfit in your bag is no longer available as a set.', unavailable_outfits: goneOutfits }, 409);
     if (!ids.length) return json({ error: 'Your bag is empty.' }, 400);
+    if (ids.length > 20) return json({ error: 'That is too many pieces for one order. Please split it in two.' }, 400);
 
-    const { order, items, checkoutExpiresAt } = await store.reserve(ids);
+    const { order, lines, checkoutExpiresAt } = await store.reserve(ids, sets);
     const s = await store.getSettings();
-    const product = (it) => {
-      const p = { name: views.itemName(it).slice(0, 250), metadata: { item_id: String(it.id) } };
+    const product = ({ item: it, outfit }) => {
+      const p = { name: ((outfit ? `${outfit}: ` : '') + views.itemName(it)).slice(0, 250), metadata: { item_id: String(it.id) } };
       const d = [it.size && `Size ${it.size}`, it.condition].filter(Boolean).join(' · ');
       if (d) p.description = d;
       if (base.startsWith('https://') && it.photos[0]) p.images = [base + views.photoUrl(it.photos[0])];
@@ -272,7 +308,7 @@ async function route(c) {
       const session = await stripe.createCheckoutSession(
         {
           mode: 'payment',
-          line_items: items.map((it) => ({ quantity: 1, price_data: { currency: 'usd', unit_amount: it.price_cents, product_data: product(it) } })),
+          line_items: lines.map((l) => ({ quantity: 1, price_data: { currency: 'usd', unit_amount: l.price_cents, product_data: product(l) } })),
           shipping_address_collection: { allowed_countries: ['US'] },
           shipping_options: [
             { shipping_rate_data: { type: 'fixed_amount', display_name: s.shipping_label, fixed_amount: { amount: s.shipping_cents, currency: 'usd' } } },
@@ -366,6 +402,19 @@ async function route(c) {
     }
     if (method === 'POST' && (m = path.match(/^\/api\/admin\/items\/(\d+)\/status$/))) {
       return json({ item: adminItem(await store.setItemStatus(m[1], (await readJson(request)).status)) });
+    }
+    const adminOutfit = (o) => ({ ...o, items: o.items.map((it) => ({ id: it.id, title: it.title, brand: it.brand, price_cents: it.price_cents, photo: it.photos[0] || null, state: store.itemState(it) })), state: store.outfitState(o), url: views.outfitPath(o) });
+    if (method === 'GET' && path === '/api/admin/outfits') return json({ outfits: (await store.listOutfits()).map(adminOutfit) });
+    if (method === 'POST' && path === '/api/admin/outfits') return json({ outfit: adminOutfit(await store.createOutfit(await readJson(request))) }, 201);
+    if ((m = path.match(/^\/api\/admin\/outfits\/(\d+)$/))) {
+      if (method === 'PUT') return json({ outfit: adminOutfit(await store.updateOutfit(m[1], await readJson(request))) });
+      if (method === 'DELETE') {
+        await store.deleteOutfit(m[1]);
+        return json({ ok: true });
+      }
+    }
+    if (method === 'POST' && (m = path.match(/^\/api\/admin\/outfits\/(\d+)\/status$/))) {
+      return json({ outfit: adminOutfit(await store.setOutfitStatus(m[1], (await readJson(request)).status)) });
     }
     if (method === 'POST' && path === '/api/admin/photos') {
       if (!/^image\/(jpeg|png|webp)$/.test(request.headers.get('Content-Type') || '')) throw new HttpError(400, 'That file is not a JPG, PNG or WebP photo.');

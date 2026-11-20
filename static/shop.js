@@ -17,8 +17,22 @@
     updateCount();
     return uniq;
   }
+  var OUTFIT_KEY = 'nc_outfits';
+  function readOutfits() {
+    try {
+      var v = JSON.parse(localStorage.getItem(OUTFIT_KEY) || '[]');
+      return Array.isArray(v) ? v.filter(function (n) { return n > 0; }) : [];
+    } catch (e) { return []; }
+  }
+  function writeOutfits(ids) {
+    var uniq = [];
+    ids.forEach(function (id) { id = Number(id); if (id > 0 && uniq.indexOf(id) < 0) uniq.push(id); });
+    try { localStorage.setItem(OUTFIT_KEY, JSON.stringify(uniq.slice(0, 5))); } catch (e) { /* private mode */ }
+    updateCount();
+    return uniq;
+  }
   function updateCount() {
-    var n = readBag().length;
+    var n = readBag().length + readOutfits().length;
     document.querySelectorAll('[data-bag-count]').forEach(function (el) {
       el.textContent = String(n);
       el.hidden = n === 0;
@@ -55,6 +69,21 @@
     });
   });
 
+  // ---------- add an outfit (the whole set) ----------
+
+  document.querySelectorAll('[data-add-outfit]').forEach(function (btn) {
+    var id = Number(btn.getAttribute('data-add-outfit'));
+    var pieceIds = btn.getAttribute('data-outfit-items').split(',').map(Number);
+    if (readOutfits().indexOf(id) >= 0) markAdded(btn);
+    btn.addEventListener('click', function () {
+      if (btn.dataset.added) { location.href = '/bag'; return; }
+      // The set replaces any of its pieces already in the bag one by one.
+      writeBag(readBag().filter(function (x) { return pieceIds.indexOf(x) < 0; }));
+      writeOutfits(readOutfits().concat([id]));
+      markAdded(btn);
+    });
+  });
+
   // ---------- gallery counter (phones) ----------
 
   document.querySelectorAll('[data-gallery]').forEach(function (g) {
@@ -80,6 +109,7 @@
   if (bought) {
     var ids = bought.getAttribute('data-clear-bag').split(',').map(Number);
     writeBag(readBag().filter(function (id) { return ids.indexOf(id) < 0; }));
+    writeOutfits([]);
   }
 
   // ---------- bag page ----------
@@ -93,19 +123,39 @@
   }
 
   function renderBag(data) {
-    var items = data.items;
-    var ids = readBag();
-    // Drop pieces that were unpublished or deleted.
+    var outfits = data.outfits || [];
+    // A piece that is already in the bag as part of an outfit is not listed twice.
+    var inSets = [];
+    outfits.forEach(function (o) { if (o.state === 'available') inSets = inSets.concat(o.item_ids); });
+    var items = data.items.filter(function (it) { return inSets.indexOf(it.id) < 0; });
+    // Drop pieces and outfits that were unpublished or deleted.
     var known = items.map(function (it) { return it.id; });
-    if (known.length !== ids.length) writeBag(ids.filter(function (id) { return known.indexOf(id) >= 0; }));
+    if (known.length !== readBag().length) writeBag(known);
+    var knownOutfits = outfits.map(function (o) { return o.id; });
+    if (knownOutfits.length !== readOutfits().length) writeOutfits(knownOutfits);
 
-    if (!items.length) {
-      bagEl.innerHTML = '<p class="lede-sm">Your bag is empty.</p><p><a class="btn" href="/#shop">Shop the closet</a></p>';
+    if (!items.length && !outfits.length) {
+      bagEl.innerHTML = '<p class="lede-sm">Your bag is empty.</p><p><a class="btn" href="/#shop">Shop now</a></p>';
       return;
     }
     var buyable = items.filter(function (it) { return it.state === 'available'; });
-    var subtotal = buyable.reduce(function (s, it) { return s + it.price_cents; }, 0);
-    var lines = items.map(function (it) {
+    var buyableOutfits = outfits.filter(function (o) { return o.state === 'available'; });
+    var subtotal = buyable.reduce(function (n, it) { return n + it.price_cents; }, 0) +
+      buyableOutfits.reduce(function (n, o) { return n + o.price_cents; }, 0);
+    var lines = outfits.map(function (o) {
+      var gone = o.state !== 'available';
+      return '<li class="' + (gone ? 'is-gone' : '') + '">' +
+        '<a class="line-thumb" href="' + esc(o.url) + '">' + (o.photo ? '<img src="' + esc(o.photo) + '" alt="">' : '') + '</a>' +
+        '<div class="line-info">' +
+          '<p class="brand">Styled outfit · ' + o.pieces.length + ' pieces</p>' +
+          '<p><a href="' + esc(o.url) + '">' + esc(o.title) + '</a></p>' +
+          '<p class="set-pieces">' + esc(o.pieces.join(', ')) + '</p>' +
+          (gone ? '<p class="line-gone">This outfit is no longer available as a full set. Open it to buy the pieces that are left.</p>' : '') +
+          '<button type="button" class="line-remove" data-remove-outfit="' + o.id + '">Remove</button>' +
+        '</div>' +
+        '<p class="line-price">' + money(o.price_cents) + '</p>' +
+      '</li>';
+    }).join('') + items.map(function (it) {
       var gone = it.state !== 'available';
       return '<li class="' + (gone ? 'is-gone' : '') + '">' +
         '<a class="line-thumb" href="' + esc(it.url) + '">' + (it.photo ? '<img src="' + esc(it.photo) + '" alt="">' : '') + '</a>' +
@@ -120,7 +170,8 @@
         '<p class="line-price">' + money(it.price_cents) + '</p>' +
       '</li>';
     }).join('');
-    var ship = buyable.length ? data.shipping_cents : 0;
+    var canBuy = buyable.length + buyableOutfits.length > 0;
+    var ship = canBuy ? data.shipping_cents : 0;
     bagEl.innerHTML =
       '<ul class="bag-lines">' + lines + '</ul>' +
       '<dl class="totals">' +
@@ -130,7 +181,7 @@
       '</dl>' +
       '<div class="checkout-box">' +
         (data.checkout_enabled
-          ? '<button type="button" class="btn btn-primary btn-block" data-checkout' + (buyable.length ? '' : ' disabled') + '>Checkout</button>' +
+          ? '<button type="button" class="btn btn-primary btn-block" data-checkout' + (canBuy ? '' : ' disabled') + '>Checkout</button>' +
             '<p class="checkout-note">Secure payment by Stripe. You’ll add your shipping address on the next page.</p>'
           : '<p class="notice">Checkout isn’t open just yet. Check back soon!</p>') +
       '</div>';
@@ -143,14 +194,24 @@
         loadBag();
       });
     });
+    bagEl.querySelectorAll('[data-remove-outfit]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = Number(b.getAttribute('data-remove-outfit'));
+        writeOutfits(readOutfits().filter(function (x) { return x !== id; }));
+        say('');
+        loadBag();
+      });
+    });
     var go = bagEl.querySelector('[data-checkout]');
-    if (go) go.addEventListener('click', function () { checkout(go, buyable.map(function (it) { return it.id; })); });
+    if (go) go.addEventListener('click', function () {
+      checkout(go, buyable.map(function (it) { return it.id; }), buyableOutfits.map(function (o) { return o.id; }));
+    });
   }
 
-  function checkout(btn, ids) {
+  function checkout(btn, ids, outfits) {
     btn.disabled = true;
     btn.textContent = 'Opening secure checkout…';
-    fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids }) })
+    fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids, outfits: outfits }) })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
       .then(function (res) {
         if (res.ok && res.body.url) { location.href = res.body.url; return; }
@@ -166,8 +227,9 @@
 
   function loadBag() {
     var ids = readBag();
-    if (!ids.length) { renderBag({ items: [] }); return; }
-    fetch('/api/bag?ids=' + ids.join(','), { cache: 'no-store' })
+    var outfits = readOutfits();
+    if (!ids.length && !outfits.length) { renderBag({ items: [], outfits: [] }); return; }
+    fetch('/api/bag?ids=' + ids.join(',') + '&outfits=' + outfits.join(','), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(renderBag)
       .catch(function () { bagEl.innerHTML = '<p>Couldn’t load your bag. Refresh to try again.</p>'; });

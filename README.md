@@ -63,6 +63,13 @@ Shoppers never see drafts.
 sold somewhere else. **Relist** puts a sold piece back on sale. **Delete** removes it for good,
 along with its photos.
 
+**Outfits (styled sets)**
+In the **Outfits** tab, tap **+ New outfit**, name the look, tick two or more of your items, and set
+one price for the whole set (the editor shows what the pieces cost separately, so you can price a deal).
+Add a styled photo of the full look if you have one. Shoppers can buy the whole outfit at the set price,
+or any piece on its own at its normal price. If a piece sells on its own, the outfit stops selling as a
+set and the remaining pieces carry on selling one by one.
+
 **When someone buys**
 1. The piece flips to **Sold** in the shop automatically. Stripe can also email you about each
    payment (turn on email notifications for successful payments in your Stripe profile).
