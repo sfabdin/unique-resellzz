@@ -51,11 +51,11 @@ ${noindex ? raw('<meta name="robots" content="noindex">') : ''}
 <meta property="og:type" content="website">
 ${canonical ? html`<link rel="canonical" href="${canonical}"><meta property="og:url" content="${canonical}">` : ''}
 ${image ? html`<meta property="og:image" content="${image}"><meta name="twitter:card" content="summary_large_image">` : ''}
-<meta name="theme-color" content="#05070d">
+<meta name="theme-color" content="#060B13">
 <link rel="icon" href="${asset('favicon.svg')}" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kaushan+Script&family=Jost:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,wght@1,700&family=Manrope:wght@400;600;700&family=Rajdhani:wght@600;700&display=swap">
 <link rel="stylesheet" href="${asset('shop.css')}">
 <script src="${asset('shop.js')}" defer></script>
 </head>
@@ -64,7 +64,7 @@ ${image ? html`<meta property="og:image" content="${image}"><meta name="twitter:
 <p class="announce">Quality items <span aria-hidden="true">·</span> Fast shipping <span aria-hidden="true">·</span> Affordable prices</p>
 <header class="site-header">
   <div class="wrap header-inner">
-    <a class="wordmark" href="/">${s.shop_name}</a>
+    <a class="wordmark" href="/" aria-label="${s.shop_name}"><img src="${asset('logo-small.webp')}" alt="${s.shop_name}" width="160" height="73"></a>
     <nav class="site-nav" aria-label="Main">
       <a href="/">Shop</a>
       <a href="/about" class="nav-about">About</a>
@@ -154,7 +154,7 @@ export function homePage(ctx, { items, sold, outfits = [], categories, brands, q
 
   const body = html`
 <section class="hero wrap">
-  <p class="eyebrow">★ ★ ★</p>
+  <img class="hero-logo" src="${asset('logo.webp')}" alt="${s.shop_name}" width="840" height="381">
   <h1>${s.headline || s.shop_name}</h1>
   ${s.tagline ? html`<p class="lede">${s.tagline}</p>` : ''}
   <p class="hero-cta"><a class="btn btn-primary" href="#shop">Shop now</a></p>

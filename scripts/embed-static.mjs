@@ -15,10 +15,17 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dir = path.join(root, 'static');
 const minify = process.argv.includes('--minify');
 const TYPES = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
+// Images (the logo) are packed as base64 and decoded when served.
+const IMAGES = { '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg' };
 
 const files = {};
 for (const name of fs.readdirSync(dir).sort()) {
   const ext = path.extname(name);
+  if (IMAGES[ext]) {
+    const bytes = fs.readFileSync(path.join(dir, name));
+    files[name] = { type: IMAGES[ext], hash: crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 10), base64: bytes.toString('base64') };
+    continue;
+  }
   if (!TYPES[ext]) continue;
   let body = fs.readFileSync(path.join(dir, name), 'utf8');
   if (minify && ext !== '.svg') {

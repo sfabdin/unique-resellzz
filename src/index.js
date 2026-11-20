@@ -77,7 +77,7 @@ function serveStatic(request, url) {
   // Pages link these with ?v=<hash>, so that exact URL can be cached for good.
   const headers = { 'Content-Type': file.type, ETag: etag, 'Cache-Control': url.searchParams.get('v') === file.hash ? 'public, max-age=31536000, immutable' : 'public, max-age=300' };
   if (request.headers.get('If-None-Match') === etag) return respond(null, 304, headers);
-  return respond(file.body, 200, headers);
+  return respond(file.base64 ? Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0)) : file.body, 200, headers);
 }
 
 /**
