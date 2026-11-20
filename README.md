@@ -3,8 +3,8 @@
 A small online shop for pre-loved designer pieces, running on **Cloudflare's free plan**.
 Hosting costs nothing; the only cost is Stripe's fee on each sale.
 
-- **The shop:** https://shop.naleyahscloset.workers.dev
-- **The Studio (admin):** https://shop.naleyahscloset.workers.dev/admin
+- **The shop:** https://shop.uniqueresellzz.workers.dev
+- **The Studio (admin):** https://shop.uniqueresellzz.workers.dev/admin
 
 Shoppers browse, add pieces to a bag, and pay through Stripe's secure checkout, which also
 collects their shipping address. Naleyah signs in to the Studio to post pieces, make them
@@ -31,7 +31,7 @@ Add a secret named `ADMIN_PASSWORD` (8 or more characters; make it a good one). 
 2. **Developers → API keys**: copy the **Secret key** (`sk_test_...`) into Cloudflare as a secret
    named `STRIPE_SECRET_KEY`.
 3. **Developers → Webhooks** (sometimes called **Event destinations**) → **Add endpoint**:
-   - URL: `https://shop.naleyahscloset.workers.dev/stripe/webhook`
+   - URL: `https://shop.uniqueresellzz.workers.dev/stripe/webhook`
    - Events: `checkout.session.completed`, `checkout.session.expired`,
      `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`
 

@@ -409,7 +409,7 @@ export function slipPage(ctx, o) {
   return html`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Packing slip #${o.number}</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Jost:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,wght@1,700&family=Manrope:wght@400;600;700&family=Rajdhani:wght@600;700&display=swap">
 <link rel="stylesheet" href="${asset('admin.css')}">
 <script src="${asset('slip.js')}" defer></script>
 </head><body class="slip">
@@ -443,7 +443,7 @@ export function adminPage() {
 <link rel="icon" href="${asset('favicon.svg')}" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Jost:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,wght@1,700&family=Manrope:wght@400;600;700&family=Rajdhani:wght@600;700&display=swap">
 <link rel="stylesheet" href="${asset('admin.css')}">
 <script src="${asset('admin.js')}" defer></script>
 </head>
@@ -451,7 +451,7 @@ export function adminPage() {
 
 <div class="login" data-login-screen hidden>
   <form class="login-card" data-login>
-    <p class="login-mark" data-shop-name>UniqueResellzz</p>
+    <img class="login-logo" src="${asset('logo.webp')}" alt="UniqueResellzz" width="840" height="381">
     <h1>Studio</h1>
     <p class="muted">Sign in to post and manage your pieces.</p>
     <label class="field">
@@ -467,7 +467,7 @@ export function adminPage() {
 <div class="app" data-app hidden>
   <header class="topbar">
     <div class="topbar-inner">
-      <a class="studio-mark" href="/admin"><span data-shop-name>UniqueResellzz</span> <em>Studio</em></a>
+      <a class="studio-mark" href="/admin"><img src="${asset('logo-small.webp')}" alt="UniqueResellzz" width="160" height="73"> <em>Studio</em></a>
       <div class="topbar-actions">
         <a class="abtn abtn-ghost abtn-sm" href="/" target="_blank" rel="noopener">View shop</a>
         <button type="button" class="abtn abtn-ghost abtn-sm" data-logout>Sign out</button>

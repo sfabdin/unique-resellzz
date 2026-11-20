@@ -1,7 +1,7 @@
 {
   // Cloudflare settings for UniqueResellzz. See README.md.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "shop",                       // the site lives at shop.naleyahscloset.workers.dev
+  "name": "shop",                       // the site lives at shop.uniqueresellzz.workers.dev
   "main": "src/index.js",
   "compatibility_date": "2026-11-01",
   // Packs static/ (styles, browser scripts) into the Worker before every dev run and deploy.

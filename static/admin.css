@@ -1,21 +1,27 @@
 /* UniqueResellzz: Studio (admin) */
 
 :root {
-  --bg: #f4f1ec;
-  --surface: #ffffff;
-  --ink: #1b1815;
-  --ink-2: #4a443d;
-  --muted: #7a7166;
-  --line: #e4ddd2;
-  --accent: #8a6a43;
-  --live: #2f6b45;
-  --live-bg: #e3f1e7;
-  --hold: #8a5a00;
-  --hold-bg: #fbefd5;
-  --draft-bg: #ece8e2;
-  --danger: #a3392b;
-  --serif: "Cormorant Garamond", Georgia, serif;
-  --sans: "Jost", "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+  /* Same brand palette as the shop (static/shop.css) */
+  --bg: #060B13;
+  --surface: #0B1424;
+  --ink: #FFFFFF;
+  --ink-2: #C9D8E5;
+  --muted: #899DAE;
+  --line: #1a2740;
+  --accent: #087BFF;
+  --blue-royal: #0752C9;
+  --blue-ice: #A3DCFF;
+  --live: #6ee7a8;
+  --live-bg: rgba(61, 220, 151, .14);
+  --hold: #ffc861;
+  --hold-bg: rgba(255, 200, 97, .14);
+  --draft-bg: #16223a;
+  --danger: #ff8a7a;
+  --chrome: linear-gradient(180deg, #FFFFFF 0%, #C9D8E5 25%, #455765 43%, #F7FBFF 55%, #899DAE 78%, #FFFFFF 100%);
+  --glow: 0 0 18px rgba(8, 123, 255, 0.45);
+  --serif: "Bodoni Moda", "Didot", Georgia, serif;
+  --label: "Rajdhani", "Arial Narrow", Arial, sans-serif;
+  --sans: "Manrope", "Helvetica Neue", Arial, sans-serif;
 }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -255,3 +261,62 @@ img { display: block; max-width: 100%; }
 .piece input { width: 18px; height: 18px; }
 .piece-thumb { width: 40px; aspect-ratio: 4 / 5; border-radius: 4px; overflow: hidden; background: var(--draft-bg); }
 .piece-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ---------- UniqueResellzz Studio theme (dark, matches the shop) ---------- */
+
+body.studio { color-scheme: dark; }
+.login-logo { display: block; width: 100%; max-width: 300px; height: auto; margin: 0 auto 14px; }
+.login-card h1, .panel-head h1, .editor-head h2, .empty-h, .order-no {
+  font-family: var(--serif); font-style: italic; font-weight: 700;
+  background: var(--chrome); -webkit-background-clip: text; background-clip: text; color: transparent; padding-bottom: .08em;
+}
+.login-card h1 { text-align: center; }
+.login-card .muted { text-align: center; }
+.studio-mark { display: flex; align-items: center; gap: 10px; }
+.studio-mark img { display: block; height: 42px; width: auto; }
+.studio-mark em { font-family: var(--label); color: var(--blue-ice); font-size: 13px; }
+.topbar { background: rgba(6, 11, 19, .94); }
+.tab { font-family: var(--label); font-weight: 600; font-size: 16px; letter-spacing: .06em; text-transform: uppercase; }
+.tab[aria-current] { color: #fff; border-bottom-color: var(--accent); }
+.tab-badge, .group-h span { background: var(--accent); color: #fff; }
+.abtn { background: transparent; border-color: #2a3a57; color: #fff; font-family: var(--label); font-weight: 700; font-size: 15px; letter-spacing: .06em; text-transform: uppercase; border-radius: 4px; }
+.abtn:hover { border-color: #fff; }
+.abtn-sm { font-size: 14px; }
+.abtn-primary { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: var(--glow); }
+.abtn-primary:hover { background: var(--blue-royal); border-color: var(--blue-royal); }
+.abtn-ghost { border-color: transparent; }
+.abtn-ghost:hover { background: transparent; border-color: #2a3a57; }
+.icon-btn { color: var(--ink-2); }
+.icon-btn:hover { background: var(--draft-bg); }
+.banner { border-left-color: var(--accent); }
+.banner-warn { background: rgba(255, 200, 97, .08); border-left-color: var(--hold); }
+.fchip { background: transparent; color: var(--ink-2); font-family: var(--label); font-weight: 600; font-size: 15px; }
+.fchip.is-on { background: transparent; border-color: var(--accent); color: #fff; }
+.fchip.is-on span { color: var(--blue-ice); }
+.row-brand, .field-label, .group-h, .card-section h2 { font-family: var(--label); font-weight: 600; color: var(--muted); }
+.row-title { font-weight: 600; }
+.pill-sold { background: var(--ink-2); color: var(--bg); }
+.menu-pop { box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
+.menu-item:hover { background: var(--draft-bg); }
+.empty-card { border-color: #2a3a57; }
+.field input, .field select, .field textarea { background: var(--bg); border-color: #2a3a57; color: #fff; }
+.field input::placeholder, .field textarea::placeholder { color: #5d6f86; }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(8, 123, 255, .25); }
+.form-error, .order-warn { background: rgba(255, 138, 122, .12); }
+.editor::backdrop { background: rgba(0, 0, 0, .7); }
+.editor { box-shadow: 0 30px 80px rgba(0, 0, 0, .6); border: 1px solid var(--line); }
+.cover-tag { background: var(--accent); }
+.photo-add { background: var(--bg); border-color: #2a3a57; color: var(--ink-2); }
+.photo-add:hover, .photo-add.is-over { background: var(--draft-bg); border-color: var(--accent); }
+.photo-tools button { color: #060B13; }
+.addr, .piece:hover { background: var(--bg); }
+.oi-price, .row-meta strong { color: var(--blue-ice); }
+.toast { background: var(--accent); box-shadow: var(--glow); font-weight: 600; }
+a { color: var(--blue-ice); }
+.studio-mark, .abtn, .menu-item { color: #fff; }
+.back-link { color: var(--muted); }
+
+/* The packing slip prints on white paper. */
+body.slip { --ink: #111; --ink-2: #333; --muted: #555; --line: #ccc; background: #fff; color: #111; color-scheme: light; }
+.slip-body h1 { font-family: Georgia, serif; }
+.slip .abtn-primary { box-shadow: none; }

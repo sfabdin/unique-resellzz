@@ -194,7 +194,7 @@
     var main = [a('edit', 'Edit')];
     if (it.state === 'draft') {
       main.push(a('live', 'Make live', 'abtn-primary'));
-      more.push('<a class="menu-item" href="' + esc(it.url) + '" target="_blank" rel="noopener">Preview</a>');
+      main.push('<a class="abtn abtn-sm" href="' + esc(it.url) + '" target="_blank" rel="noopener">Preview</a>');
     } else if (it.state === 'available') {
       main.push('<a class="abtn abtn-sm" href="' + esc(it.url) + '" target="_blank" rel="noopener">View</a>');
       more.push('<button type="button" class="menu-item" data-act="draft" data-id="' + it.id + '">Unpublish (back to draft)</button>');
@@ -326,6 +326,7 @@
     if (editing.status === 'draft') {
       foot.innerHTML = cancel +
         '<button type="submit" class="abtn" data-save="draft"' + (busy ? ' disabled' : '') + '>Save draft</button>' +
+        '<button type="submit" class="abtn" data-save="preview"' + (busy ? ' disabled' : '') + '>Save &amp; preview</button>' +
         '<button type="submit" class="abtn abtn-primary" data-save="live"' + (busy ? ' disabled' : '') + '>Save &amp; make live</button>';
     } else {
       foot.innerHTML = cancel + '<button type="submit" class="abtn abtn-primary" data-save="keep"' + (busy ? ' disabled' : '') + '>Save changes</button>';
@@ -466,20 +467,33 @@
     editing.saving = true;
     renderFoot();
     setEditorError('');
+    var win = previewTab(mode);
     var req = editing.id ? api('PUT', '/api/admin/items/' + editing.id, body) : api('POST', '/api/admin/items', body);
-    req.then(function () {
+    req.then(function (j) {
       editing.dirty = false;
       dialog.close();
-      toast(mode === 'live' ? 'It’s live! Shoppers can see it now.' : mode === 'draft' ? 'Saved as a draft. Only you can see it.' : 'Saved.');
+      if (win) win.location = j.item.url;
+      toast(mode === 'live' ? 'It’s live! Shoppers can see it now.' : mode === 'keep' ? 'Saved.' : 'Saved as a draft. Only you can see it.');
       if (mode === 'live' && state.filter === 'draft') state.filter = 'all';
       loadItems();
     }).catch(function (err) {
+      if (win) win.close();
       setEditorError(err.message);
     }).then(function () {
       editing.saving = false;
       if (dialog.open) renderFoot();
     });
   });
+
+  // "Save & preview" opens the shopper's view of a draft in a new tab. The tab
+  // is opened straight away (browsers block tabs opened later) and pointed at
+  // the page once the save has finished.
+  function previewTab(mode) {
+    if (mode !== 'preview') return null;
+    var win = window.open('', '_blank');
+    if (win) win.document.write('<p style="font-family:sans-serif;padding:24px">Opening preview…</p>');
+    return win;
+  }
 
   // ---------- outfits ----------
 
@@ -492,13 +506,16 @@
     editing.saving = true;
     renderFoot();
     setEditorError('');
+    var win = previewTab(mode);
     var req = editing.id ? api('PUT', '/api/admin/outfits/' + editing.id, body) : api('POST', '/api/admin/outfits', body);
-    req.then(function () {
+    req.then(function (j) {
       editing.dirty = false;
       dialog.close();
-      toast(mode === 'live' ? 'The outfit is live!' : mode === 'draft' ? 'Saved as a draft. Only you can see it.' : 'Saved.');
+      if (win) win.location = j.outfit.url;
+      toast(mode === 'live' ? 'The outfit is live!' : mode === 'keep' ? 'Saved.' : 'Saved as a draft. Only you can see it.');
       loadOutfits();
     }).catch(function (err) {
+      if (win) win.close();
       setEditorError(err.message);
     }).then(function () {
       editing.saving = false;
@@ -528,7 +545,7 @@
           (o.state === 'unavailable' ? '<p class="row-note">A piece sold on its own, is in a checkout, or was unpublished. The rest still sell one by one.</p>' : '') +
         '</div>' +
         '<div class="row-actions">' + a('edit', 'Edit') +
-          (o.status === 'draft' ? a('live', 'Make live', 'abtn-primary') : '<a class="abtn abtn-sm" href="' + esc(o.url) + '" target="_blank" rel="noopener">View</a>' + a('draft', 'Unpublish')) +
+          (o.status === 'draft' ? '<a class="abtn abtn-sm" href="' + esc(o.url) + '" target="_blank" rel="noopener">Preview</a>' + a('live', 'Make live', 'abtn-primary') : '<a class="abtn abtn-sm" href="' + esc(o.url) + '" target="_blank" rel="noopener">View</a>' + a('draft', 'Unpublish')) +
           a('remove', 'Delete') +
         '</div></li>';
     }).join('');
