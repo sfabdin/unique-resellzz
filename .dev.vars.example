@@ -1,0 +1,6 @@
+# For trying the shop on your own computer with `npm run dev`.
+# Copy this file to .dev.vars and fill it in. (On Cloudflare, set these as
+# secrets instead: Worker -> Settings -> Variables and Secrets.)
+ADMIN_PASSWORD=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=

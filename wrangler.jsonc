@@ -1,0 +1,20 @@
+{
+  // Cloudflare settings for UniqueResellzz. See README.md.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shop",                       // the site lives at shop.naleyahscloset.workers.dev
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-01",
+  // Packs static/ (styles, browser scripts) into the Worker before every dev run and deploy.
+  "build": { "command": "node scripts/embed-static.mjs", "watch_dir": "static" },
+  // The shop's database: items, orders and settings.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "naleyahs-closet", "database_id": "8709ea03-7b45-42f8-b249-c67612ec704e" }
+  ],
+  // Where the photo files are kept.
+  "kv_namespaces": [
+    { "binding": "PHOTOS", "id": "993e35aa0c7745dcb96de87ad1ddd84f" }
+  ],
+  // Keep the password and Stripe keys that were added in the Cloudflare dashboard.
+  "keep_vars": true,
+  "observability": { "enabled": true }
+}

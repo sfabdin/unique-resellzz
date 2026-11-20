@@ -1,0 +1,21 @@
+{
+  "name": "unique-resellzz",
+  "version": "2.1.0",
+  "private": true,
+  "description": "UniqueResellzz: a small online shop for pre-loved designer pieces, running free on Cloudflare Workers with Stripe checkout.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "pretest": "node scripts/embed-static.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --test test/shop.test.js",
+    "bundle": "node scripts/bundle.mjs"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "wrangler": "^4.158.0"
+  }
+}
